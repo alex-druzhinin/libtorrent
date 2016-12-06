@@ -1637,6 +1637,7 @@ namespace aux {
 			: socket_type_t::udp;
 
 		ret.udp_sock = std::make_shared<udp_socket>(m_io_service);
+
 #if TORRENT_HAS_BINDTODEVICE
 		if (!device.empty())
 		{
@@ -1661,6 +1662,7 @@ namespace aux {
 			}
 		}
 #endif
+		session_log("UDP bind %s -- %d", bind_ep.address().to_string().c_str(), bind_ep.port());
 		ret.udp_sock->bind(udp::endpoint(bind_ep.address(), bind_ep.port())
 			, ec);
 
@@ -1681,8 +1683,10 @@ namespace aux {
 
 			return ret;
 		}
+		session_log("UDP external port");
 		ret.udp_external_port = ret.udp_sock->local_port();
 
+		session_log("UDP socket buffer size");
 		error_code err;
 		set_socket_buffer_size(*ret.udp_sock, m_settings, err);
 		if (err)
@@ -1691,8 +1695,11 @@ namespace aux {
 				m_alerts.emplace_alert<udp_error_alert>(ret.udp_sock->local_endpoint(ec), err);
 		}
 
+		session_log("UDP set force proxy");
 		ret.udp_sock->set_force_proxy(m_settings.get_bool(settings_pack::force_proxy));
+		ret.udp_sock->set_proxy_settings(proxy());
 
+		session_log("UDP async_read");
 		// TODO: 2 use a handler allocator here
 		ADD_OUTSTANDING_ASYNC("session_impl::on_udp_packet");
 		ret.udp_sock->async_read(std::bind(&session_impl::on_udp_packet
@@ -1856,7 +1863,7 @@ namespace aux {
 				, tcp::endpoint(ep.addr, std::uint16_t(ep.port))
 				, flags | (ep.ssl ? open_ssl_socket : 0), ec);
 
-			if (!ec && s.sock)
+			if (!ec && (s.sock || s.udp_sock))
 			{
 				// TODO notify interested parties of this socket's creation
 				m_listen_sockets.push_back(s);
@@ -2151,21 +2158,26 @@ namespace aux {
 		, error_code& ec
 		, int const flags)
 	{
+		session_log("send_udp_packet_hostname");
+
 		// for now, just pick the first socket with a matching address family
 		// TODO: 3 for proper multi-homed support, we may want to do something
 		// else here. Probably let the caller decide which interface to send over
 		for (std::list<listen_socket_t>::iterator i = m_listen_sockets.begin()
 			, end(m_listen_sockets.end()); i != end; ++i)
 		{
+			session_log("listen_socket");
 			if (!i->udp_sock) continue;
 			if (i->ssl) continue;
 
+			session_log("udp_sock send_hostname");
 			i->udp_sock->send_hostname(hostname, port, p, ec, flags);
 
 			if ((ec == error::would_block
 					|| ec == error::try_again)
 				&& !i->udp_write_blocked)
 			{
+				session_log("udp_sock async_write");
 				i->udp_write_blocked = true;
 				ADD_OUTSTANDING_ASYNC("session_impl::on_udp_writeable");
 				i->udp_sock->async_write(std::bind(&session_impl::on_udp_writeable
@@ -2182,12 +2194,14 @@ namespace aux {
 		, error_code& ec
 		, int const flags)
 	{
+		session_log("send_udp_packet");
 		// for now, just pick the first socket with a matching address family
 		// TODO: 3 for proper multi-homed support, we may want to do something
 		// else here. Probably let the caller decide which interface to send over
 		for (std::list<listen_socket_t>::iterator i = m_listen_sockets.begin()
 			, end(m_listen_sockets.end()); i != end; ++i)
 		{
+			session_log("listen_socket2");
 			if (i->ssl != ssl) continue;
 			if (!i->udp_sock) continue;
 			if (i->local_endpoint.address().is_v4() != ep.address().is_v4())
@@ -2199,6 +2213,7 @@ namespace aux {
 					|| ec == error::try_again)
 				&& !i->udp_write_blocked)
 			{
+				session_log("udp_sock2 async_write");
 				i->udp_write_blocked = true;
 				ADD_OUTSTANDING_ASYNC("session_impl::on_udp_writeable");
 				i->udp_sock->async_write(std::bind(&session_impl::on_udp_writeable

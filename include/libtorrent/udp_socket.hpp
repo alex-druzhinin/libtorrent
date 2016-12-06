@@ -65,7 +65,7 @@ namespace libtorrent
 		template <typename Handler>
 		void async_read(Handler h)
 		{
-			m_socket.async_receive(null_buffers(), h);
+			m_socket.async_receive(boost::asio::buffer(*m_buf2), h);
 		}
 
 		template <typename Handler>
@@ -143,6 +143,9 @@ namespace libtorrent
 
 		using receive_buffer = std::array<char, 1500>;
 		std::unique_ptr<receive_buffer> m_buf;
+
+		using receive_buffer2 = std::array<char, 1500>;
+		std::unique_ptr<receive_buffer2> m_buf2;
 
 		std::uint16_t m_bind_port;
 
