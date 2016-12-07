@@ -108,13 +108,13 @@ namespace libtorrent
 			if (s == nullptr) clear();
 			else std::memcpy(m_number, s, size());
 		}
-#ifndef TORRENT_NO_DEPRECATE
-		TORRENT_DEPRECATED
-		explicit digest32(std::string const& s)
-		{
-			assign(s.data());
-		}
-#endif
+//#ifndef TORRENT_NO_DEPRECATE
+//		TORRENT_DEPRECATED
+//		explicit digest32(std::string const& s)
+//		{
+//			assign(s.data());
+//		}
+//#endif
 		explicit digest32(span<char const> s)
 		{
 			assign(s);
