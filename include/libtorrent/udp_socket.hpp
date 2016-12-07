@@ -71,7 +71,7 @@ namespace libtorrent
 		template <typename Handler>
 		void async_write(Handler h)
 		{
-			m_socket.async_send(null_buffers(), h);
+			m_socket.async_send(boost::asio::buffer(*m_buf3), h);
 		}
 
 		struct packet
@@ -147,7 +147,10 @@ namespace libtorrent
 		using receive_buffer2 = std::array<char, 1500>;
 		std::unique_ptr<receive_buffer2> m_buf2;
 
-		std::uint16_t m_bind_port;
+        using receive_buffer3 = std::array<char, 1500>;
+        std::unique_ptr<receive_buffer2> m_buf3;
+
+        std::uint16_t m_bind_port;
 
 		aux::proxy_settings m_proxy_settings;
 
