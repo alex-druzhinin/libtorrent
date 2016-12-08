@@ -141,14 +141,14 @@ namespace libtorrent
 
 		udp::socket m_socket;
 
-		using receive_buffer = std::array<char, 1500>;
+		using receive_buffer = std::array<char, 5000>;
 		std::unique_ptr<receive_buffer> m_buf;
 
-		using receive_buffer2 = std::array<char, 1500>;
+		using receive_buffer2 = std::array<char, 5000>;
 		std::unique_ptr<receive_buffer2> m_buf2;
 
-        using receive_buffer3 = std::array<char, 1500>;
-        std::unique_ptr<receive_buffer2> m_buf3;
+        using receive_buffer3 = std::array<char, 5000>;
+        std::unique_ptr<receive_buffer3> m_buf3;
 
         std::uint16_t m_bind_port;
 
