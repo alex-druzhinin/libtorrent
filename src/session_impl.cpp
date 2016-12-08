@@ -2255,6 +2255,8 @@ namespace aux {
 		, bool const ssl, error_code const& ec)
 	{
 		COMPLETE_ASYNC("session_impl::on_udp_packet");
+
+        session_log("session_impl::on_udp_packet");
 		if (ec)
 		{
 			std::shared_ptr<udp_socket> s = socket.lock();
@@ -2284,6 +2286,8 @@ namespace aux {
 		std::shared_ptr<udp_socket> s = socket.lock();
 		if (!s) return;
 
+        session_log("session_impl::on_udp_packet socket lock");
+
 		struct utp_socket_manager& mgr =
 #ifdef TORRENT_USE_OPENSSL
 			ssl ? m_ssl_utp_socket_manager :
@@ -2295,6 +2299,8 @@ namespace aux {
 			std::array<udp_socket::packet, 50> p;
 			error_code err;
 			int const num_packets = s->read(p, err);
+
+            session_log("session_impl::on_udp_packet num_packets: %d", num_packets);
 
 			for (int i = 0; i < num_packets; ++i)
 			{
@@ -2323,6 +2329,7 @@ namespace aux {
 					// if it wasn't a uTP packet, try the other users of the UDP
 					// socket
 					bool handled = false;
+                    session_log("session_impl::on_udp_packet handled = false");
 #ifndef TORRENT_DISABLE_DHT
 					if (m_dht && buf.size() > 20 && buf.front() == 'd' && buf.back() == 'e')
 					{
