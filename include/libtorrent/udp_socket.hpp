@@ -65,13 +65,13 @@ namespace libtorrent
 		template <typename Handler>
 		void async_read(Handler h)
 		{
-			m_socket.async_receive(boost::asio::buffer(*m_buf2), h);
+			m_socket.async_receive(boost::asio::buffer(*m_buf), h);
 		}
 
 		template <typename Handler>
 		void async_write(Handler h)
 		{
-			m_socket.async_send(boost::asio::buffer(*m_buf3), h);
+			m_socket.async_send(boost::asio::buffer(*m_buf), h);
 		}
 
 		struct packet
@@ -141,14 +141,14 @@ namespace libtorrent
 
 		udp::socket m_socket;
 
-		using receive_buffer = std::array<char, 5000>;
+		using receive_buffer = std::array<char, 1500>;
 		std::unique_ptr<receive_buffer> m_buf;
 
-		using receive_buffer2 = std::array<char, 5000>;
-		std::unique_ptr<receive_buffer2> m_buf2;
-
-        using receive_buffer3 = std::array<char, 5000>;
-        std::unique_ptr<receive_buffer3> m_buf3;
+//		using receive_buffer2 = std::array<char, 5000>;
+//		std::unique_ptr<receive_buffer2> m_buf2;
+//
+//        using receive_buffer3 = std::array<char, 5000>;
+//        std::unique_ptr<receive_buffer3> m_buf3;
 
         std::uint16_t m_bind_port;
 

@@ -157,6 +157,8 @@ struct set_dont_frag
 udp_socket::udp_socket(io_service& ios)
 	: m_socket(ios)
 	, m_buf(new receive_buffer())
+//    , m_buf2(new receive_buffer2())
+//    , m_buf3(new receive_buffer3())
 	, m_bind_port(0)
 	, m_force_proxy(false)
 	, m_abort(true)
