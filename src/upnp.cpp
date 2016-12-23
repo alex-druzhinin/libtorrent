@@ -209,7 +209,7 @@ int upnp::add_mapping(portmap_protocol const p, int const external_port
 	mapping_it->external_port = external_port;
 	mapping_it->local_port = local_port;
 
-	int const mapping_index = mapping_it - m_mappings.begin();
+	int const mapping_index = int(mapping_it - m_mappings.begin());
 
 	for (auto const& dev : m_devices)
 	{
@@ -340,8 +340,6 @@ void upnp::on_reply(udp::endpoint const& from, char* buffer
 {
 	TORRENT_ASSERT(is_single_thread());
 	std::shared_ptr<upnp> me(self());
-
-	using namespace libtorrent::detail;
 
 	// parse out the url for the device
 
@@ -762,15 +760,15 @@ void upnp::next(rootdevice& d, int i)
 	}
 	else
 	{
-		std::vector<mapping_t>::iterator j = std::find_if(d.mapping.begin(), d.mapping.end()
+		auto const j = std::find_if(d.mapping.begin(), d.mapping.end()
 			, [] (mapping_t const& m) { return m.act != mapping_t::action::none; });
 		if (j == d.mapping.end()) return;
 
-		update_map(d, j - d.mapping.begin());
+		update_map(d, int(j - d.mapping.begin()));
 	}
 }
 
-void upnp::update_map(rootdevice& d, int i)
+void upnp::update_map(rootdevice& d, int const i)
 {
 	TORRENT_ASSERT(is_single_thread());
 	TORRENT_ASSERT(d.magic == 1337);
@@ -883,7 +881,7 @@ namespace
 	}
 }
 
-TORRENT_EXTRA_EXPORT void find_control_url(int type, char const* string
+void find_control_url(int type, char const* string
 	, int str_len, parse_state& state)
 {
 	if (type == xml_start_tag)
@@ -1102,7 +1100,7 @@ void upnp::disable(error_code const& ec)
 		if (i->protocol == portmap_protocol::none) continue;
 		portmap_protocol const proto = i->protocol;
 		i->protocol = portmap_protocol::none;
-		m_callback.on_port_mapping(i - m_mappings.begin(), address(), 0, proto, ec
+		m_callback.on_port_mapping(int(i - m_mappings.begin()), address(), 0, proto, ec
 			, aux::portmap_transport::upnp);
 	}
 
@@ -1117,53 +1115,39 @@ void upnp::disable(error_code const& ec)
 	m_socket.close();
 }
 
+void find_error_code(int type, char const* string, int str_len, error_code_parse_state& state)
+{
+	if (state.exit) return;
+	if (type == xml_start_tag && !std::strncmp("errorCode", string, size_t(str_len)))
+	{
+		state.in_error_code = true;
+	}
+	else if (type == xml_string && state.in_error_code)
+	{
+		std::string error_code_str(string, str_len);
+		state.error_code = std::atoi(error_code_str.c_str());
+		state.exit = true;
+	}
+}
+
+void find_ip_address(int type, char const* string, int str_len, ip_address_parse_state& state)
+{
+	find_error_code(type, string, str_len, state);
+	if (state.exit) return;
+
+	if (type == xml_start_tag && !std::strncmp("NewExternalIPAddress", string, size_t(str_len)))
+	{
+		state.in_ip_address = true;
+	}
+	else if (type == xml_string && state.in_ip_address)
+	{
+		state.ip_address.assign(string, str_len);
+		state.exit = true;
+	}
+}
+
 namespace
 {
-	struct error_code_parse_state
-	{
-		error_code_parse_state(): in_error_code(false), exit(false), error_code(-1) {}
-		bool in_error_code;
-		bool exit;
-		int error_code;
-	};
-
-	void find_error_code(int type, char const* string, error_code_parse_state& state)
-	{
-		if (state.exit) return;
-		if (type == xml_start_tag && !std::strcmp("errorCode", string))
-		{
-			state.in_error_code = true;
-		}
-		else if (type == xml_string && state.in_error_code)
-		{
-			state.error_code = std::atoi(string);
-			state.exit = true;
-		}
-	}
-
-	struct ip_address_parse_state: public error_code_parse_state
-	{
-		ip_address_parse_state(): in_ip_address(false) {}
-		bool in_ip_address;
-		std::string ip_address;
-	};
-
-	void find_ip_address(int type, char const* string, ip_address_parse_state& state)
-	{
-		find_error_code(type, string, state);
-		if (state.exit) return;
-
-		if (type == xml_start_tag && !std::strcmp("NewExternalIPAddress", string))
-		{
-			state.in_ip_address = true;
-		}
-		else if (type == xml_string && state.in_ip_address)
-		{
-			state.ip_address = string;
-			state.exit = true;
-		}
-	}
-
 	struct error_code_t
 	{
 		int code;
@@ -1297,7 +1281,7 @@ void upnp::on_upnp_get_ip_address_response(error_code const& e
 #endif
 
 	ip_address_parse_state s;
-	xml_parse(body, std::bind(&find_ip_address, _1, _2, std::ref(s)));
+	xml_parse(body, std::bind(&find_ip_address, _1, _2, _3, std::ref(s)));
 #ifndef TORRENT_DISABLE_LOGGING
 	if (s.error_code != -1)
 	{
@@ -1398,7 +1382,7 @@ void upnp::on_upnp_map_response(error_code const& e
 
 	error_code_parse_state s;
 	span<char const> body = p.get_body();
-	xml_parse(body, std::bind(&find_error_code, _1, _2, std::ref(s)));
+	xml_parse(body, std::bind(&find_error_code, _1, _2, _3, std::ref(s)));
 
 	if (s.error_code != -1)
 	{
@@ -1552,7 +1536,7 @@ void upnp::on_upnp_unmap_response(error_code const& e
 	error_code_parse_state s;
 	if (p.header_finished())
 	{
-		xml_parse(p.get_body(), std::bind(&find_error_code, _1, _2, std::ref(s)));
+		xml_parse(p.get_body(), std::bind(&find_error_code, _1, _2, _3, std::ref(s)));
 	}
 
 	portmap_protocol const proto = m_mappings[mapping].protocol;

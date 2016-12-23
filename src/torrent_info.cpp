@@ -422,7 +422,7 @@ namespace libtorrent
 	// root_dir is the name of the torrent, unless this is a single file
 	// torrent, in which case it's empty.
 	bool extract_single_file(bdecode_node const& dict, file_storage& files
-		, std::string const& root_dir, ptrdiff_t info_ptr_diff, bool top_level
+		, std::string const& root_dir, std::ptrdiff_t const info_ptr_diff, bool top_level
 		, int& pad_file_cnt, error_code& ec)
 	{
 		if (dict.type() != bdecode_node::dict_t) return false;
@@ -440,7 +440,7 @@ namespace libtorrent
 			return false;
 		}
 
-		std::int64_t const mtime = dict.dict_find_int_value("mtime", 0);
+		std::time_t const mtime = std::time_t(dict.dict_find_int_value("mtime", 0));
 
 		std::string path = root_dir;
 		char const* filename = nullptr;
@@ -469,7 +469,7 @@ namespace libtorrent
 
 			if (p && p.list_size() > 0)
 			{
-				size_t const preallocate = path.size() + path_length(p, ec);
+				std::size_t const preallocate = path.size() + path_length(p, ec);
 				if (ec) return false;
 				path.reserve(preallocate);
 
@@ -489,7 +489,7 @@ namespace libtorrent
 				// pad files don't need a path element, we'll just store them
 				// under the .pad directory
 				char cnt[10];
-				snprintf(cnt, sizeof(cnt), "%d", pad_file_cnt);
+				std::snprintf(cnt, sizeof(cnt), "%d", pad_file_cnt);
 				path = combine_path(".pad", cnt);
 				++pad_file_cnt;
 			}
@@ -545,7 +545,7 @@ namespace libtorrent
 
 	struct string_hash_no_case
 	{
-		size_t operator()(std::string const& s) const
+		std::size_t operator()(std::string const& s) const
 		{
 			char const* s1 = s.c_str();
 			size_t ret = 5381;
@@ -631,7 +631,7 @@ namespace libtorrent
 		: url(url_)
 		, auth(auth_)
 		, extra_headers(extra_headers_)
-		, type(type_)
+		, type(std::uint8_t(type_))
 	{
 	}
 
@@ -697,7 +697,7 @@ namespace libtorrent
 		// insert all directories first, to make sure no files
 		// are allowed to collied with them
 		m_files.all_path_hashes(files);
-		for (int i = 0; i < m_files.num_files(); ++i)
+		for (file_index_t i(0); i < m_files.end_file(); ++i)
 		{
 			// as long as this file already exists
 			// increase the counter
@@ -740,7 +740,7 @@ namespace libtorrent
 			}
 		}
 
-		for (int i = 0; i < m_files.num_files(); ++i)
+		for (file_index_t i(0); i < m_files.end_file(); ++i)
 		{
 			// as long as this file already exists
 			// increase the counter
@@ -906,7 +906,7 @@ namespace libtorrent
 		INVARIANT_CHECK;
 	}
 
-	void torrent_info::rename_file(int index, std::wstring const& new_filename)
+	void torrent_info::rename_file(file_index_t index, std::wstring const& new_filename)
 	{
 		TORRENT_ASSERT(is_loaded());
 		copy_on_write();
@@ -1016,7 +1016,7 @@ namespace libtorrent
 		TORRENT_ASSERT(!is_loaded());
 	}
 
-	sha1_hash torrent_info::hash_for_piece(int index) const
+	sha1_hash torrent_info::hash_for_piece(piece_index_t const index) const
 	{ return sha1_hash(hash_for_piece_ptr(index)); }
 
 	void torrent_info::copy_on_write()
@@ -1097,7 +1097,7 @@ namespace libtorrent
 		ptrdiff_t const info_ptr_diff = m_info_section.get() - section.data();
 
 		// extract piece length
-		int piece_length = info.dict_find_int_value("piece length", -1);
+		int piece_length = int(info.dict_find_int_value("piece length", -1));
 		if (piece_length <= 0)
 		{
 			ec = errors::torrent_missing_piece_length;
@@ -1255,11 +1255,11 @@ namespace libtorrent
 
 
 	bool torrent_info::add_merkle_nodes(std::map<int, sha1_hash> const& subtree
-		, int const piece)
+		, piece_index_t const piece)
 	{
 		INVARIANT_CHECK;
 
-		int n = m_merkle_first_leaf + piece;
+		int n = m_merkle_first_leaf + static_cast<int>(piece);
 		auto const it = subtree.find(n);
 		if (it == subtree.end()) return false;
 		sha1_hash h = it->second;
@@ -1305,12 +1305,13 @@ namespace libtorrent
 
 	// builds a list of nodes that are required to verify
 	// the given piece
-	std::map<int, sha1_hash> torrent_info::build_merkle_list(int const piece) const
+	std::map<int, sha1_hash>
+	torrent_info::build_merkle_list(piece_index_t const piece) const
 	{
 		INVARIANT_CHECK;
 
 		std::map<int, sha1_hash> ret;
-		int n = m_merkle_first_leaf + piece;
+		int n = m_merkle_first_leaf + static_cast<int>(piece);
 		ret[n] = m_merkle_tree[n];
 		ret[0] = m_merkle_tree[0];
 		while (n > 0)
@@ -1336,7 +1337,7 @@ namespace libtorrent
 		}
 
 		bdecode_node info = torrent_file.dict_find_dict("info");
-		if (info == 0)
+		if (!info)
 		{
 			bdecode_node link = torrent_file.dict_find_string("magnet-uri");
 			if (link)
@@ -1645,7 +1646,7 @@ namespace libtorrent
 #if TORRENT_USE_INVARIANT_CHECKS
 	void torrent_info::check_invariant() const
 	{
-		for (int i = 0; i < m_files.num_files(); ++i)
+		for (file_index_t i(0); i < m_files.end_file(); ++i)
 		{
 			TORRENT_ASSERT(m_files.file_name_ptr(i) != nullptr);
 			if (m_files.file_name_len(i) != -1)

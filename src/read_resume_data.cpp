@@ -113,22 +113,22 @@ namespace libtorrent
 		ret.total_uploaded = rd.dict_find_int_value("total_uploaded");
 		ret.total_downloaded = rd.dict_find_int_value("total_downloaded");
 
-		ret.active_time = rd.dict_find_int_value("active_time");
-		ret.finished_time = rd.dict_find_int_value("finished_time");
-		ret.seeding_time = rd.dict_find_int_value("seeding_time");
+		ret.active_time = int(rd.dict_find_int_value("active_time"));
+		ret.finished_time = int(rd.dict_find_int_value("finished_time"));
+		ret.seeding_time = int(rd.dict_find_int_value("seeding_time"));
 
-		ret.last_seen_complete = rd.dict_find_int_value("last_seen_complete");
+		ret.last_seen_complete = std::time_t(rd.dict_find_int_value("last_seen_complete"));
 
 		// scrape data cache
-		ret.num_complete = rd.dict_find_int_value("num_complete", -1);
-		ret.num_incomplete = rd.dict_find_int_value("num_incomplete", -1);
-		ret.num_downloaded = rd.dict_find_int_value("num_downloaded", -1);
+		ret.num_complete = int(rd.dict_find_int_value("num_complete", -1));
+		ret.num_incomplete = int(rd.dict_find_int_value("num_incomplete", -1));
+		ret.num_downloaded = int(rd.dict_find_int_value("num_downloaded", -1));
 
 		// torrent settings
-		ret.max_uploads = rd.dict_find_int_value("max_uploads", -1);
-		ret.max_connections = rd.dict_find_int_value("max_connections", -1);
-		ret.upload_limit = rd.dict_find_int_value("upload_rate_limit", -1);
-		ret.download_limit = rd.dict_find_int_value("download_rate_limit", -1);
+		ret.max_uploads = int(rd.dict_find_int_value("max_uploads", -1));
+		ret.max_connections = int(rd.dict_find_int_value("max_connections", -1));
+		ret.upload_limit = int(rd.dict_find_int_value("upload_rate_limit", -1));
+		ret.download_limit = int(rd.dict_find_int_value("download_rate_limit", -1));
 
 		// torrent state
 		apply_flag(ret.flags, rd, "seed_mode", add_torrent_params::flag_seed_mode);
@@ -152,12 +152,12 @@ namespace libtorrent
 			{
 				auto new_filename = mapped_files.list_string_value_at(i);
 				if (new_filename.empty()) continue;
-				ret.renamed_files[i] = new_filename.to_string();
+				ret.renamed_files[file_index_t(i)] = new_filename.to_string();
 			}
 		}
 
-		ret.added_time = rd.dict_find_int_value("added_time", 0);
-		ret.completed_time = rd.dict_find_int_value("completed_time", 0);
+		ret.added_time = std::time_t(rd.dict_find_int_value("added_time", 0));
+		ret.completed_time = std::time_t(rd.dict_find_int_value("completed_time", 0));
 
 		// load file priorities except if the add_torrent_param file was set to
 		// override resume data
@@ -168,7 +168,8 @@ namespace libtorrent
 			ret.file_priorities.resize(num_files, 4);
 			for (int i = 0; i < num_files; ++i)
 			{
-				ret.file_priorities[i] = std::uint8_t(file_priority.list_int_value_at(i, 1));
+				ret.file_priorities[i] = std::uint8_t(
+					file_priority.list_int_value_at(i, 1));
 				// this is suspicious, leave seed mode
 				if (ret.file_priorities[i] == 0)
 				{
@@ -250,14 +251,14 @@ namespace libtorrent
 			int const pieces_len = pieces.string_length();
 			ret.have_pieces.resize(pieces_len);
 			ret.verified_pieces.resize(pieces_len);
-			for (int i = 0; i < pieces_len; ++i)
+			for (piece_index_t i(0); i < ret.verified_pieces.end_index(); ++i)
 			{
 				// being in seed mode and missing a piece is not compatible.
 				// Leave seed mode if that happens
-				if (pieces_str[i] & 1) ret.have_pieces.set_bit(i);
+				if (pieces_str[static_cast<int>(i)] & 1) ret.have_pieces.set_bit(i);
 				else ret.have_pieces.clear_bit(i);
 
-				if (pieces_str[i] & 2) ret.verified_pieces.set_bit(i);
+				if (pieces_str[static_cast<int>(i)] & 2) ret.verified_pieces.set_bit(i);
 				else ret.verified_pieces.clear_bit(i);
 			}
 		}
@@ -266,7 +267,7 @@ namespace libtorrent
 		{
 			char const* prio_str = piece_priority.string_ptr();
 			ret.piece_priorities.resize(piece_priority.string_length());
-			for (int i = 0; i < piece_priority.string_length(); ++i)
+			for (int i = 0; i < int(ret.piece_priorities.size()); ++i)
 			{
 				ret.piece_priorities[i] = prio_str[i];
 			}
@@ -312,8 +313,8 @@ namespace libtorrent
 			{
 				bdecode_node e = unfinished_entry.list_at(i);
 				if (e.type() != bdecode_node::dict_t) continue;
-				int piece = e.dict_find_int_value("piece", -1);
-				if (piece < 0) continue;
+				piece_index_t const piece = piece_index_t(int(e.dict_find_int_value("piece", -1)));
+				if (piece < piece_index_t(0)) continue;
 
 				bdecode_node bitmask = e.dict_find_string("bitmask");
 				if (bitmask || bitmask.string_length() == 0) continue;

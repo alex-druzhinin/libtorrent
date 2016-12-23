@@ -330,7 +330,7 @@ restart_response:
 
 		if (m_state == read_body)
 		{
-			int incoming = recv_buffer.end() - pos;
+			int incoming = int(recv_buffer.end() - pos);
 
 			if (m_chunked_encoding && (m_flags & dont_parse_chunks) == 0)
 			{
@@ -348,7 +348,7 @@ restart_response:
 						incoming -= int(payload);
 					}
 					auto const buf = span<char const>(recv_buffer)
-						.subspan(m_cur_chunk_end);
+						.subspan(std::size_t(m_cur_chunk_end));
 					std::int64_t chunk_size;
 					int header_size;
 					if (parse_chunk_header(buf, &chunk_size, &header_size))
@@ -459,7 +459,7 @@ restart_response:
 
 		if (*chunk_size != 0)
 		{
-			*header_size = newline - buf.data();
+			*header_size = int(newline - buf.data());
 			// the newline alone is two bytes
 			TORRENT_ASSERT(newline - buf.data() > 2);
 			return true;
@@ -487,7 +487,7 @@ restart_response:
 				// this means we got a blank line,
 				// the header is finished and the body
 				// starts.
-				*header_size = newline - buf.data();
+				*header_size = int(newline - buf.data());
 
 				// the newline alone is two bytes
 				TORRENT_ASSERT(newline - buf.data() > 2);
@@ -525,7 +525,7 @@ restart_response:
 			? (std::min)(m_chunked_ranges.back().second - m_body_start_pos, received)
 			: m_content_length < 0 ? received : (std::min)(m_content_length, received);
 
-		return m_recv_buffer.subspan(m_body_start_pos, body_length);
+		return m_recv_buffer.subspan(m_body_start_pos, std::size_t(body_length));
 	}
 
 	void http_parser::reset()
@@ -569,7 +569,7 @@ restart_response:
 			std::memmove(write_ptr, buffer + i.first - offset, len);
 			write_ptr += len;
 		}
-		size = write_ptr - buffer;
+		size = int(write_ptr - buffer);
 		return size;
 	}
 }

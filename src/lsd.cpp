@@ -36,7 +36,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <cstdio> // for vsnprintf
 
 #include "libtorrent/lsd.hpp"
-#include "libtorrent/io.hpp"
 #include "libtorrent/time.hpp"
 #include "libtorrent/random.hpp"
 #include "libtorrent/http_parser.hpp"
@@ -87,7 +86,7 @@ bool lsd::should_log() const
 	return m_callback.should_log_lsd();
 }
 
-TORRENT_FORMAT(2,3)
+TORRENT_FORMAT(2, 3)
 void lsd::debug_log(char const* fmt, ...) const
 {
 	if (!should_log()) return;
@@ -129,18 +128,16 @@ void lsd::announce_impl(sha1_hash const& ih, int const listen_port
 	if (m_disabled) return;
 #endif
 
-	char ih_hex[41];
-	aux::to_hex(ih, ih_hex);
 	char msg[200];
 
 #ifndef TORRENT_DISABLE_LOGGING
-	debug_log("==> LSD: ih: %s port: %u\n", ih_hex, listen_port);
+	debug_log("==> LSD: ih: %s port: %u\n", aux::to_hex(ih).c_str(), listen_port);
 #endif
 
 	error_code ec;
 	if (!m_disabled)
 	{
-		int const msg_len = render_lsd_packet(msg, sizeof(msg), listen_port, ih_hex
+		int const msg_len = render_lsd_packet(msg, sizeof(msg), listen_port, aux::to_hex(ih).c_str()
 			, m_cookie, "239.192.152.143");
 		m_socket.send(msg, msg_len, ec, broadcast ? broadcast_socket::flag_broadcast : 0);
 		if (ec)
@@ -159,7 +156,7 @@ void lsd::announce_impl(sha1_hash const& ih, int const listen_port
 #if TORRENT_USE_IPV6
 	if (!m_disabled6)
 	{
-		int const msg_len = render_lsd_packet(msg, sizeof(msg), listen_port, ih_hex
+		int const msg_len = render_lsd_packet(msg, sizeof(msg), listen_port, aux::to_hex(ih).c_str()
 			, m_cookie, "[ff15::efc0:988f]");
 		m_socket6.send(msg, msg_len, ec, broadcast ? broadcast_socket::flag_broadcast : 0);
 		if (ec)
@@ -206,7 +203,7 @@ void lsd::on_announce(udp::endpoint const& from, char const* buf
 	http_parser p;
 
 	bool error = false;
-	p.incoming(span<char const>(buf, bytes_transferred), error);
+	p.incoming({buf, bytes_transferred}, error);
 
 	if (!p.header_finished() || error)
 	{
@@ -233,7 +230,14 @@ void lsd::on_announce(udp::endpoint const& from, char const* buf
 		return;
 	}
 
-	int const port = std::atoi(port_str.c_str());
+	long const port = std::strtol(port_str.c_str(), nullptr, 10);
+	if (port <= 0 || port >= int(std::numeric_limits<std::uint16_t>::max()))
+	{
+#ifndef TORRENT_DISABLE_LOGGING
+		debug_log("<== LSD: invalid BT-SEARCH port value: %s", port_str.c_str());
+#endif
+		return;
+	}
 
 	auto const& headers = p.headers();
 
@@ -242,12 +246,12 @@ void lsd::on_announce(udp::endpoint const& from, char const* buf
 	{
 		// we expect it to be hexadecimal
 		// if it isn't, it's not our cookie anyway
-		std::int32_t const cookie = strtol(cookie_iter->second.c_str(), nullptr, 16);
+		long const cookie = std::strtol(cookie_iter->second.c_str(), nullptr, 16);
 		if (cookie == m_cookie)
 		{
 #ifndef TORRENT_DISABLE_LOGGING
 			debug_log("<== LSD: ignoring packet (cookie matched our own): %x"
-				, cookie);
+				, m_cookie);
 #endif
 			return;
 		}
@@ -266,7 +270,7 @@ void lsd::on_announce(udp::endpoint const& from, char const* buf
 			continue;
 		}
 
-		sha1_hash ih(nullptr);
+		sha1_hash ih;
 		aux::from_hex(ih_str, ih.data());
 
 		if (!ih.is_all_zeros() && port != 0)
@@ -276,7 +280,7 @@ void lsd::on_announce(udp::endpoint const& from, char const* buf
 			{
 				debug_log("<== LSD: %s:%d ih: %s"
 					, print_address(from.address()).c_str()
-					, port, ih_str.c_str());
+					, int(port), ih_str.c_str());
 			}
 #endif
 			// we got an announce, pass it on through the callback

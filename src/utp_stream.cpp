@@ -1066,7 +1066,7 @@ size_t utp_stream::read_some(bool clear_buffers)
 		m_impl->m_receive_buffer_size -= to_copy;
 		TORRENT_ASSERT(m_impl->m_read_buffer_size >= to_copy);
 		m_impl->m_read_buffer_size -= to_copy;
-		p->header_size += to_copy;
+		p->header_size += std::uint16_t(to_copy);
 		if (target->len == 0) target = m_impl->m_read_buffer.erase(target);
 
 		m_impl->check_receive_buffers();
@@ -1337,7 +1337,7 @@ void utp_socket_impl::send_syn()
 	h->seq_nr = m_seq_nr;
 	h->ack_nr = 0;
 
-	time_point now = clock_type::now();
+	time_point const now = clock_type::now();
 	p->send_time = now;
 	h->timestamp_microseconds = std::uint32_t(
 		total_microseconds(now.time_since_epoch()) & 0xffffffff);
@@ -1431,7 +1431,7 @@ void utp_socket_impl::send_reset(utp_header const* ph)
 	h.wnd_size = 0;
 	h.seq_nr = std::uint16_t(random(0xffff));
 	h.ack_nr = ph->seq_nr;
-	time_point now = clock_type::now();
+	time_point const now = clock_type::now();
 	h.timestamp_microseconds = std::uint32_t(
 		total_microseconds(now.time_since_epoch()) & 0xffffffff);
 
@@ -1670,8 +1670,8 @@ void utp_socket_impl::remove_sack_header(packet* p)
 	TORRENT_ASSERT(p->size >= p->header_size);
 	TORRENT_ASSERT(p->header_size >= sizeof(utp_header) + sack_size + 2);
 	memmove(ptr, ptr + sack_size + 2, p->size - p->header_size);
-	p->header_size -= sack_size + 2;
-	p->size -= sack_size + 2;
+	p->header_size -= std::uint16_t(sack_size + 2);
+	p->size -= std::uint16_t(sack_size + 2);
 }
 
 struct holder
@@ -1884,8 +1884,8 @@ bool utp_socket_impl::send_pkt(int const flags)
 		h = reinterpret_cast<utp_header*>(ptr);
 		ptr += sizeof(utp_header);
 
-		h->extension = sack ? utp_sack
-			: close_reason ? utp_close_reason : utp_no_extension;
+		h->extension = std::uint8_t(sack ? utp_sack
+			: close_reason ? utp_close_reason : utp_no_extension);
 		h->connection_id = m_send_id;
 		// seq_nr is ignored for ST_STATE packets, so it doesn't
 		// matter that we say this is a sequence number we haven't
@@ -1925,7 +1925,7 @@ bool utp_socket_impl::send_pkt(int const flags)
 			, m_write_buffer_size);
 
 		write_payload(p->buf + p->size, size_left);
-		p->size += size_left;
+		p->size += std::uint16_t(size_left);
 
 		UTP_LOGV("%8p: NAGLE appending %d bytes to nagle packet. new size: %d allocated: %d\n"
 			, static_cast<void*>(this), size_left, p->size, p->allocated);
@@ -1951,7 +1951,7 @@ bool utp_socket_impl::send_pkt(int const flags)
 
 	if (sack)
 	{
-		*ptr++ = close_reason ? utp_close_reason : utp_no_extension;
+		*ptr++ = std::uint8_t(close_reason ? utp_close_reason : utp_no_extension);
 		*ptr++ = std::uint8_t(sack); // bytes for SACK bitfield
 		write_sack(ptr, sack);
 		ptr += sack;
@@ -2008,7 +2008,7 @@ bool utp_socket_impl::send_pkt(int const flags)
 		h->type_ver = (ST_FIN << 4) | 1;
 
 	// fill in the timestamp as late as possible
-	time_point now = clock_type::now();
+	time_point const now = clock_type::now();
 	p->send_time = now;
 	h->timestamp_microseconds = std::uint32_t(
 		total_microseconds(now.time_since_epoch()) & 0xffffffff);
@@ -2301,7 +2301,7 @@ void utp_socket_impl::experienced_loss(int const seq_nr)
 	// start should end before we over shoot.
 	if (m_slow_start)
 	{
-		m_ssthres = m_cwnd >> 16;
+		m_ssthres = std::int32_t(m_cwnd >> 16);
 		m_slow_start = false;
 		UTP_LOGV("%8p: experienced loss, slow_start -> 0\n", static_cast<void*>(this));
 	}
@@ -2428,7 +2428,7 @@ void utp_socket_impl::incoming(std::uint8_t const* buf, int size, packet* p
 		if (target->len == 0) m_read_buffer.erase(m_read_buffer.begin());
 		if (p)
 		{
-			p->header_size += to_copy;
+			p->header_size += std::uint16_t(to_copy);
 			TORRENT_ASSERT(p->header_size <= p->size);
 		}
 
@@ -2982,7 +2982,7 @@ bool utp_socket_impl::incoming_packet(span<std::uint8_t const> buf
 	// ptr points to the payload of the packet
 	// size is the packet size, payload is the
 	// number of payload bytes are in this packet
-	const int header_size = ptr - buf.data();
+	const int header_size = int(ptr - buf.data());
 	const int payload_size = size - header_size;
 
 #if TORRENT_UTP_LOG
@@ -3388,7 +3388,7 @@ void utp_socket_impl::do_ledbat(const int acked_bytes, const int delay
 		{
 			UTP_LOGV("%8p: off_target: %d slow_start -> 0\n"
 				, static_cast<void*>(this), target_delay - delay);
-			m_ssthres = (m_cwnd >> 16) / 2;
+			m_ssthres = std::int32_t((m_cwnd >> 16) / 2);
 			m_slow_start = false;
 		}
 

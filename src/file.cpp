@@ -158,7 +158,7 @@ namespace
 
 	// windows only lets us wait for 64 handles at a time, so this function makes
 	// sure we wait for all of them, partially in sequence
-	int wait_for_multiple_objects(int num_handles, HANDLE* h)
+	DWORD wait_for_multiple_objects(int num_handles, HANDLE* h)
 	{
 		int batch_size = (std::min)(num_handles, MAXIMUM_WAIT_OBJECTS);
 		while (WaitForMultipleObjects(batch_size, h, TRUE, INFINITE) != WAIT_FAILED)
@@ -662,14 +662,14 @@ namespace libtorrent
 		char buffer[4096];
 		for (;;)
 		{
-			int const num_read = read(infd, buffer, sizeof(buffer));
+			int const num_read = int(read(infd, buffer, sizeof(buffer)));
 			if (num_read == 0) break;
 			if (num_read < 0)
 			{
 				ec.assign(errno, system_category());
 				break;
 			}
-			int const num_written = write(outfd, buffer, num_read);
+			int const num_written = int(write(outfd, buffer, num_read));
 			if (num_written < num_read)
 			{
 				ec.assign(errno, system_category());
@@ -1009,7 +1009,7 @@ namespace libtorrent
 				*write_cur++ = *read_cur++;
 				continue;
 			}
-			int element_len = read_cur - last_read_sep;
+			int element_len = int(read_cur - last_read_sep);
 			if (element_len == 1 && std::memcmp(last_read_sep, ".", 1) == 0)
 			{
 				--write_cur;
@@ -1305,7 +1305,7 @@ namespace libtorrent
 				return -1;
 			}
 
-			DWORD ret = -1;
+			DWORD ret;
 			if (GetOverlappedResult(file, &ol, &ret, false) == 0)
 			{
 				DWORD last_error = GetLastError();
@@ -1771,10 +1771,10 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 
 #elif TORRENT_USE_PREAD
 
-		int ret = 0;
+		std::int64_t ret = 0;
 		for (auto i : bufs)
 		{
-			int tmp_ret = f(fd, i.iov_base, i.iov_len, file_offset);
+			std::int64_t const tmp_ret = f(fd, i.iov_base, i.iov_len, file_offset);
 			if (tmp_ret < 0)
 			{
 #ifdef TORRENT_WINDOWS
@@ -1854,7 +1854,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 #if TORRENT_USE_PREADV
 		TORRENT_UNUSED(flags);
 
-		int ret = iov(&::preadv, native_handle(), file_offset, bufs, ec);
+		std::int64_t ret = iov(&::preadv, native_handle(), file_offset, bufs, ec);
 #else
 
 		// there's no point in coalescing single buffer writes
@@ -1873,9 +1873,9 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 		}
 
 #if TORRENT_USE_PREAD
-		int ret = iov(&::pread, native_handle(), file_offset, tmp_bufs, ec);
+		std::int64_t ret = iov(&::pread, native_handle(), file_offset, tmp_bufs, ec);
 #else
-		int ret = iov(&::read, native_handle(), file_offset, tmp_bufs, ec);
+		std::int64_t ret = iov(&::read, native_handle(), file_offset, tmp_bufs, ec);
 #endif
 
 		if ((flags & file::coalesce_buffers))
@@ -1910,7 +1910,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 #if TORRENT_USE_PREADV
 		TORRENT_UNUSED(flags);
 
-		int ret = iov(&::pwritev, native_handle(), file_offset, bufs, ec);
+		std::int64_t ret = iov(&::pwritev, native_handle(), file_offset, bufs, ec);
 #else
 
 		// there's no point in coalescing single buffer writes
@@ -1928,9 +1928,9 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 		}
 
 #if TORRENT_USE_PREAD
-		int ret = iov(&::pwrite, native_handle(), file_offset, bufs, ec);
+		std::int64_t ret = iov(&::pwrite, native_handle(), file_offset, bufs, ec);
 #else
-		int ret = iov(&::write, native_handle(), file_offset, bufs, ec);
+		std::int64_t ret = iov(&::write, native_handle(), file_offset, bufs, ec);
 #endif
 
 		if (flags & file::coalesce_buffers)
@@ -2156,7 +2156,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 		// update the modification time of the file for no good
 		// reason.
 		if ((m_open_mode & sparse) == 0
-			&& st.st_blocks < (s + st.st_blksize - 1) / st.st_blksize)
+			&& std::int64_t(st.st_blocks) < (s + st.st_blksize - 1) / st.st_blksize)
 		{
 			// How do we know that the file is already allocated?
 			// if we always try to allocate the space, we'll update

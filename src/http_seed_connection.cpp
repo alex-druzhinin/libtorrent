@@ -125,7 +125,7 @@ namespace libtorrent
 		int const correction = ret.bytes_downloaded ? -1 : 0;
 		ret.block_index = (pr.start + ret.bytes_downloaded + correction) / t->block_size();
 		ret.full_block_bytes = t->block_size();
-		int const last_piece = t->torrent_file().num_pieces() - 1;
+		piece_index_t const last_piece = t->torrent_file().last_piece();
 		if (ret.piece_index == last_piece && ret.block_index
 			== t->torrent_file().piece_size(last_piece) / t->block_size())
 			ret.full_block_bytes = t->torrent_file().piece_size(last_piece) % t->block_size();
@@ -156,7 +156,7 @@ namespace libtorrent
 			int request_offset = r.start + r.length - size;
 			pr.start = request_offset % piece_size;
 			pr.length = (std::min)(block_size, size);
-			pr.piece = r.piece + request_offset / piece_size;
+			pr.piece = piece_index_t(static_cast<int>(r.piece) + request_offset / piece_size);
 			m_requests.push_back(pr);
 			size -= pr.length;
 		}
@@ -359,7 +359,7 @@ namespace libtorrent
 			{
 				int header_size = 0;
 				std::int64_t chunk_size = 0;
-				span<char const> chunk_start(recv_buffer.begin() + m_chunk_pos, int(recv_buffer.size()) - m_chunk_pos);
+				span<char const> chunk_start(recv_buffer.begin() + m_chunk_pos, std::size_t(int(recv_buffer.size()) - m_chunk_pos));
 				TORRENT_ASSERT(chunk_start[0] == '\r'
 					|| aux::is_hex(chunk_start[0]));
 				bool ret = m_parser.parse_chunk_header(chunk_start, &chunk_size, &header_size);

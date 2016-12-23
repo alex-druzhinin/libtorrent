@@ -611,12 +611,12 @@ std::shared_ptr<T> clone_ptr(std::shared_ptr<T> const& ptr)
 unsigned char random_byte()
 { return lt::random(0xff); }
 
-std::vector<char> generate_piece(int const idx, int const piece_size)
+std::vector<char> generate_piece(piece_index_t const idx, int const piece_size)
 {
 	using namespace libtorrent;
 	std::vector<char> ret(piece_size);
 
-	std::mt19937 rng(idx);
+	std::mt19937 rng(static_cast<int>(idx));
 	std::uniform_int_distribution<int> rand(-128, 127);
 	for (char& c : ret)
 	{
@@ -657,7 +657,7 @@ std::shared_ptr<lt::torrent_info> make_torrent(const int file_sizes[]
 	libtorrent::create_torrent ct(fs, piece_size, 0x4000
 		, libtorrent::create_torrent::optimize_alignment);
 
-	for (int i = 0; i < fs.num_pieces(); ++i)
+	for (piece_index_t i(0); i < fs.end_piece(); ++i)
 	{
 		std::vector<char> piece = generate_piece(i, fs.piece_size(i));
 		ct.set_hash(i, hasher(piece).final());
@@ -744,9 +744,8 @@ std::shared_ptr<torrent_info> create_torrent(std::ostream* file
 		piece[i] = (i % 26) + 'A';
 
 	// calculate the hash for all pieces
-	int num = t.num_pieces();
 	sha1_hash ph = hasher(piece).final();
-	for (int i = 0; i < num; ++i)
+	for (piece_index_t i(0); i < t.files().end_piece(); ++i)
 		t.set_hash(i, ph);
 
 	if (file)
@@ -842,9 +841,7 @@ setup_transfer(lt::session* ses1, lt::session* ses2, lt::session* ses3
 			remove_all(combine_path("tmp2" + suffix, "temporary"), ec);
 			remove_all(combine_path("tmp3" + suffix, "temporary"), ec);
 		}
-		char ih_hex[41];
-		aux::to_hex(t->info_hash(), ih_hex);
-		std::printf("generated torrent: %s tmp1%s/temporary\n", ih_hex, suffix.c_str());
+		std::printf("generated torrent: %s tmp1%s/temporary\n", aux::to_hex(t->info_hash()).c_str(), suffix.c_str());
 	}
 	else
 	{

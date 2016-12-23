@@ -39,10 +39,11 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "libtorrent/sha1_hash.hpp"
 #include "libtorrent/time.hpp" // for time_duration
 #include "libtorrent/storage_defs.hpp" // for storage_mode_t
-#include "libtorrent/error_code.hpp" // for storage_mode_t
+#include "libtorrent/error_code.hpp"
 
 #include <cstdint>
 #include <string>
+#include <ctime>
 
 namespace libtorrent
 {
@@ -53,8 +54,8 @@ namespace libtorrent
 		// hidden
 		torrent_status();
 		~torrent_status();
-		torrent_status(torrent_status const&) = default;
-		torrent_status& operator=(torrent_status const&) = default;
+		torrent_status(torrent_status const&);
+		torrent_status& operator=(torrent_status const&);
 
 		// compares if the torrent status objects come from the same torrent. i.e.
 		// only the torrent_handle field is compared.
@@ -125,28 +126,35 @@ namespace libtorrent
 #endif
 		error_code errc;
 
-		int error_file = torrent_status::error_file_none;
+		file_index_t error_file = torrent_status::error_file_none;
+
+#ifdef _MSC_VER
+#pragma warning(push, 1)
+#pragma warning(disable : 4268)
+#endif
 
 		// special values for error_file to describe which file or component
 		// encountered the error (``errc``).
-		enum error_file_t {
-			// the error did not occur on a file
-			error_file_none = -1,
+		// the error did not occur on a file
+		static constexpr file_index_t error_file_none{-1};
 
-			// the error occurred on m_url
-			error_file_url = -2,
+		// the error occurred on m_url
+		static constexpr file_index_t error_file_url{-2};
 
-			// the error occurred setting up the SSL context
-			error_file_ssl_ctx = -3,
+		// the error occurred setting up the SSL context
+		static constexpr file_index_t error_file_ssl_ctx{-3};
 
-			// the error occurred while loading the .torrent file via the user
-			// supplied load function
-			error_file_metadata = -4,
+		// the error occurred while loading the .torrent file via the user
+		// supplied load function
+		static constexpr file_index_t error_file_metadata{-4};
 
-			// there was a serious error reported in this torrent. The error code
-			// or a torrent log alert may provide more information.
-			error_file_exception = -5,
-		};
+		// there was a serious error reported in this torrent. The error code
+		// or a torrent log alert may provide more information.
+		static constexpr file_index_t error_file_exception{-5};
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 		// the path to the directory where this torrent's files are stored.
 		// It's typically the path as was given to async_add_torrent() or
@@ -222,12 +230,12 @@ namespace libtorrent
 		// a bitmask that represents which pieces we have (set to true) and the
 		// pieces we don't have. It's a pointer and may be set to 0 if the
 		// torrent isn't downloading or seeding.
-		bitfield pieces;
+		typed_bitfield<piece_index_t> pieces;
 
 		// a bitmask representing which pieces has had their hash checked. This
 		// only applies to torrents in *seed mode*. If the torrent is not in seed
 		// mode, this bitmask may be empty.
-		bitfield verified_pieces;
+		typed_bitfield<piece_index_t> verified_pieces;
 
 		// the total number of bytes of the file(s) that we have. All this does
 		// not necessarily has to be downloaded during this session (that's
@@ -251,15 +259,15 @@ namespace libtorrent
 
 		// the posix-time when this torrent was added. i.e. what ``time(nullptr)``
 		// returned at the time.
-		time_t added_time = 0;
+		std::time_t added_time = 0;
 
 		// the posix-time when this torrent was finished. If the torrent is not
 		// yet finished, this is 0.
-		time_t completed_time = 0;
+		std::time_t completed_time = 0;
 
 		// the time when we, or one of our peers, last saw a complete copy of
 		// this torrent.
-		time_t last_seen_complete = 0;
+		std::time_t last_seen_complete = 0;
 
 		// The allocation mode for the torrent. See storage_mode_t for the
 		// options. For more information, see storage-allocation_.
@@ -545,7 +553,7 @@ namespace libtorrent
 		bool stop_when_ready = false;
 
 		// the info-hash for this torrent
-		sha1_hash info_hash{nullptr};
+		sha1_hash info_hash;
 
 		time_point last_upload;
 		time_point last_download;

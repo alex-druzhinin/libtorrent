@@ -55,6 +55,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "libtorrent/kademlia/node.hpp"
 #include "libtorrent/kademlia/dht_observer.hpp"
 #include "libtorrent/kademlia/direct_request.hpp"
+#include "libtorrent/kademlia/io.hpp"
 
 #include "libtorrent/kademlia/refresh.hpp"
 #include "libtorrent/kademlia/get_peers.hpp"
@@ -361,10 +362,8 @@ namespace
 		auto logger = node.observer();
 		if (logger != nullptr && logger->should_log(dht_logger::node))
 		{
-			char hex_ih[41];
-			aux::to_hex(ih, hex_ih);
 			logger->log(dht_logger::node, "sending announce_peer [ ih: %s "
-				" p: %d nodes: %d ]", hex_ih, listen_port, int(v.size()));
+				" p: %d nodes: %d ]", aux::to_hex(ih).c_str(), listen_port, int(v.size()));
 		}
 #endif
 
@@ -443,10 +442,8 @@ void node::announce(sha1_hash const& info_hash, int const listen_port, int const
 #ifndef TORRENT_DISABLE_LOGGING
 	if (m_observer != nullptr && m_observer->should_log(dht_logger::node))
 	{
-		char hex_ih[41];
-		aux::to_hex(info_hash, hex_ih);
 		m_observer->log(dht_logger::node, "announcing [ ih: %s p: %d ]"
-			, hex_ih, listen_port);
+			, aux::to_hex(info_hash).c_str(), listen_port);
 	}
 #endif
 
@@ -475,10 +472,8 @@ void node::get_item(sha1_hash const& target
 #ifndef TORRENT_DISABLE_LOGGING
 	if (m_observer != nullptr && m_observer->should_log(dht_logger::node))
 	{
-		char hex_target[41];
-		aux::to_hex(target, hex_target);
 		m_observer->log(dht_logger::node, "starting get for [ hash: %s ]"
-			, hex_target);
+			, aux::to_hex(target).c_str());
 	}
 #endif
 
@@ -532,10 +527,8 @@ void node::put_item(sha1_hash const& target, entry const& data, std::function<vo
 #ifndef TORRENT_DISABLE_LOGGING
 	if (m_observer != nullptr && m_observer->should_log(dht_logger::node))
 	{
-		char hex_target[41];
-		aux::to_hex(target, hex_target);
 		m_observer->log(dht_logger::node, "starting get for [ hash: %s ]"
-			, hex_target);
+			, aux::to_hex(target).c_str());
 	}
 #endif
 
@@ -609,17 +602,8 @@ struct ping_observer : observer
 
 			while (end - nodes >= 20 + protocol_size + 2)
 			{
-				node_id id;
-				std::copy(nodes, nodes + 20, id.begin());
-				nodes += 20;
-				udp::endpoint ep;
-#if TORRENT_USE_IPV6
-				if (protocol == udp::v6())
-					ep = detail::read_v6_endpoint<udp::endpoint>(nodes);
-				else
-#endif
-					ep = detail::read_v4_endpoint<udp::endpoint>(nodes);
-				algorithm()->get_node().m_table.heard_about(id, ep);
+				node_endpoint nep = read_node_endpoint(protocol, nodes);
+				algorithm()->get_node().m_table.heard_about(nep.id, nep.ep);
 			}
 		}
 	}
