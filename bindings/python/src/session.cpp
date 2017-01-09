@@ -19,6 +19,7 @@
 #include <libtorrent/kademlia/item.hpp> // for sign_mutable_item
 #include <libtorrent/alert.hpp>
 #include <libtorrent/time.hpp>
+#include <libtorrent/session_stats.hpp>
 
 #include <libtorrent/extensions/smart_ban.hpp>
 #include <libtorrent/extensions/ut_metadata.hpp>
@@ -646,11 +647,11 @@ void bind_session()
         .value("flag_update_subscribe", add_torrent_params::flag_update_subscribe)
         .value("flag_super_seeding", add_torrent_params::flag_super_seeding)
         .value("flag_sequential_download", add_torrent_params::flag_sequential_download)
-        .value("flag_pinned", add_torrent_params::flag_pinned)
         .value("flag_stop_when_ready", add_torrent_params::flag_stop_when_ready)
         .value("flag_override_trackers", add_torrent_params::flag_override_trackers)
         .value("flag_override_web_seeds", add_torrent_params::flag_override_web_seeds)
 #ifndef TORRENT_NO_DEPRECATE
+        .value("flag_pinned", add_torrent_params::flag_pinned)
         .value("flag_override_resume_data", add_torrent_params::flag_override_resume_data)
         .value("flag_merge_resume_trackers", add_torrent_params::flag_merge_resume_trackers)
         .value("flag_use_resume_save_path", add_torrent_params::flag_use_resume_save_path)
@@ -867,6 +868,15 @@ void bind_session()
     def("high_performance_seed", (perf_preset2)high_performance_seed);
     def("min_memory_usage", (mem_preset2)min_memory_usage);
     def("read_resume_data", read_resume_data_wrapper);
+
+	class_<stats_metric>("stats_metric")
+		.def_readonly("name", &stats_metric::name)
+		.def_readonly("value_index", &stats_metric::value_index)
+		.def_readonly("type", &stats_metric::type)
+	;
+
+    def("session_stats_metrics", session_stats_metrics);
+    def("find_metric_idx", find_metric_idx);
 
     scope().attr("create_ut_metadata_plugin") = "ut_metadata";
     scope().attr("create_ut_pex_plugin") = "ut_pex";

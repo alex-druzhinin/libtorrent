@@ -1,6 +1,6 @@
 /*
 
-Copyright (c) 2016, Arvid Norberg
+Copyright (c) 2017, Arvid Norberg
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -30,38 +30,37 @@ POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef TORRENT_PIECE_BLOCK_HPP_INCLUDED
-#define TORRENT_PIECE_BLOCK_HPP_INCLUDED
+#include "setup_swarm.hpp"
+#include "test.hpp"
+#include "utils.hpp"
+#include "libtorrent/session.hpp"
+#include "libtorrent/socket.hpp"
+#include "simulator/simulator.hpp"
+#include "simulator/utils.hpp" // for timer
+#include "settings.hpp"
+#include "create_torrent.hpp"
 
-#include "libtorrent/units.hpp"
+using namespace libtorrent;
 
-namespace libtorrent
+TORRENT_TEST(seed_mode)
 {
-	struct TORRENT_EXTRA_EXPORT piece_block
-	{
-		static const piece_block invalid;
-
-		piece_block() = default;
-		piece_block(piece_index_t p_index, int b_index)
-			: piece_index(p_index)
-			, block_index(b_index)
-		{
+	// with seed mode
+	setup_swarm(2, swarm_test::upload
+		// add session
+		, [](lt::settings_pack& pack) {
+			// make sure the session works with a tick interval of 5 seconds
+			pack.set_int(settings_pack::tick_interval, 5000);
 		}
-		piece_index_t piece_index {0};
-		int block_index = 0;
-
-		bool operator<(piece_block const& b) const
-		{
-			if (piece_index < b.piece_index) return true;
-			if (piece_index == b.piece_index) return block_index < b.block_index;
-			return false;
+		// add torrent
+		, [](lt::add_torrent_params& params) {
+			params.flags |= add_torrent_params::flag_seed_mode;
 		}
-
-		bool operator==(piece_block const& b) const
-		{ return piece_index == b.piece_index && block_index == b.block_index; }
-
-		bool operator!=(piece_block const& b) const
-		{ return piece_index != b.piece_index || block_index != b.block_index; }
-	};
+		// on alert
+		, [](lt::alert const* a, lt::session& ses) {}
+		// terminate
+		, [](int ticks, lt::session& ses) -> bool {
+			// we don't need to finish seeding, exit after 20 seconds
+			return ticks > 20;
+		});
 }
-#endif
+

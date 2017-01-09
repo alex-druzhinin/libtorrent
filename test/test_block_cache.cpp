@@ -99,8 +99,7 @@ static void nop() {}
 	std::shared_ptr<storage_interface> pm \
 		= std::make_shared<test_storage_impl>(); \
 	pm->set_files(&fs); \
-	error_code ec; \
-	bc.set_settings(sett, ec); \
+	bc.set_settings(sett); \
 	pm->m_settings = &sett; \
 	disk_io_job rj; \
 	disk_io_job wj; \
@@ -135,9 +134,9 @@ static void nop() {}
 	ret = bc.try_read(&rj)
 
 #define RETURN_BUFFER \
-	if (rj.d.io.ref.storage) bc.reclaim_block(rj.d.io.ref); \
+	if (rj.d.io.ref.cookie != aux::block_cache_reference::none) bc.reclaim_block(pm.get(), rj.d.io.ref); \
 	else if (rj.buffer.disk_block) bc.free_buffer(rj.buffer.disk_block); \
-	rj.d.io.ref.storage = 0
+	rj.d.io.ref.cookie = aux::block_cache_reference::none
 
 #define FLUSH(flushing) \
 	for (int i = 0; i < int(sizeof(flushing)/sizeof((flushing)[0])); ++i) \

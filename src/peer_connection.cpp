@@ -64,6 +64,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "libtorrent/close_reason.hpp"
 #include "libtorrent/aux_/has_block.hpp"
 #include "libtorrent/aux_/time.hpp"
+#include "libtorrent/aux_/non_owning_handle.hpp"
 
 #if TORRENT_USE_ASSERTS
 #include <set>
@@ -119,7 +120,6 @@ namespace libtorrent
 		, m_max_out_request_queue(m_settings.get_int(settings_pack::max_out_request_queue))
 		, m_remote(pack.endp)
 		, m_disk_thread(*pack.disk_thread)
-		, m_allocator(*pack.allocator)
 		, m_ios(*pack.ios)
 		, m_work(m_ios)
 		, m_outstanding_piece_verification(0)
@@ -2590,39 +2590,6 @@ namespace libtorrent
 	void peer_connection::incoming_piece(peer_request const& p, char const* data)
 	{
 		TORRENT_ASSERT(is_single_thread());
-		bool exceeded = false;
-		disk_buffer_holder buffer
-			= m_allocator.allocate_disk_buffer(exceeded, self(), "receive buffer");
-
-		if (!buffer)
-		{
-			disconnect(errors::no_memory, op_alloc_recvbuf);
-			return;
-		}
-
-		// every peer is entitled to have two disk blocks allocated at any given
-		// time, regardless of whether the cache size is exceeded or not. If this
-		// was not the case, when the cache size setting is very small, most peers
-		// would be blocked most of the time, because the disk cache would
-		// continuously be in exceeded state. Only rarely would it actually drop
-		// down to 0 and unblock all peers.
-		if (exceeded && m_outstanding_writing_bytes > 0)
-		{
-			if ((m_channel_state[download_channel] & peer_info::bw_disk) == 0)
-				m_counters.inc_stats_counter(counters::num_peers_down_disk);
-			m_channel_state[download_channel] |= peer_info::bw_disk;
-#ifndef TORRENT_DISABLE_LOGGING
-			peer_log(peer_log_alert::info, "DISK", "exceeded disk buffer watermark");
-#endif
-		}
-
-		std::memcpy(buffer.get(), data, p.length);
-		incoming_piece(p, std::move(buffer));
-	}
-
-	void peer_connection::incoming_piece(peer_request const& p, disk_buffer_holder data)
-	{
-		TORRENT_ASSERT(is_single_thread());
 		INVARIANT_CHECK;
 
 		std::shared_ptr<torrent> t = m_torrent.lock();
@@ -2636,7 +2603,7 @@ namespace libtorrent
 		if (m_remote.address().is_v4()
 			&& (m_remote.address().to_v4().to_ulong() & 0xf) == 0)
 		{
-			data.get()[0] = ~data.get()[0];
+			data[0] = ~data[0];
 		}
 #endif
 
@@ -2654,7 +2621,7 @@ namespace libtorrent
 #ifndef TORRENT_DISABLE_EXTENSIONS
 		for (auto const& e : m_extensions)
 		{
-			if (e->on_piece(p, {data.get(), size_t(p.length)}))
+			if (e->on_piece(p, {data, size_t(p.length)}))
 			{
 #if TORRENT_USE_ASSERTS
 				TORRENT_ASSERT(m_received_in_piece == p.length);
@@ -2828,9 +2795,25 @@ namespace libtorrent
 
 		if (t->is_deleted()) return;
 
-		m_disk_thread.async_write(&t->storage(), p, std::move(data)
+		bool const exceeded = m_disk_thread.async_write(t->storage(), p, data, self()
 			, std::bind(&peer_connection::on_disk_write_complete
 			, self(), _1, p, t));
+
+		// every peer is entitled to have two disk blocks allocated at any given
+		// time, regardless of whether the cache size is exceeded or not. If this
+		// was not the case, when the cache size setting is very small, most peers
+		// would be blocked most of the time, because the disk cache would
+		// continuously be in exceeded state. Only rarely would it actually drop
+		// down to 0 and unblock all peers.
+		if (exceeded && m_outstanding_writing_bytes > 0)
+		{
+			if ((m_channel_state[download_channel] & peer_info::bw_disk) == 0)
+				m_counters.inc_stats_counter(counters::num_peers_down_disk);
+			m_channel_state[download_channel] |= peer_info::bw_disk;
+#ifndef TORRENT_DISABLE_LOGGING
+			peer_log(peer_log_alert::info, "DISK", "exceeded disk buffer watermark");
+#endif
+		}
 
 		std::int64_t const write_queue_size = m_counters.inc_stats_counter(
 			counters::queued_write_bytes, p.length);
@@ -3025,7 +3008,7 @@ namespace libtorrent
 					// when this returns, all outstanding jobs to the
 					// piece are done, and we can restore it, allowing
 					// new requests to it
-					m_disk_thread.async_clear_piece(&t->storage(), p.piece
+					m_disk_thread.async_clear_piece(t->storage(), p.piece
 						, std::bind(&torrent::on_piece_fail_sync, t, _1, block_finished));
 				}
 				else
@@ -5106,7 +5089,7 @@ namespace libtorrent
 #endif
 				// this means we're in seed mode and we haven't yet
 				// verified this piece (r.piece)
-				m_disk_thread.async_hash(&t->storage(), r.piece, 0
+				m_disk_thread.async_hash(t->storage(), r.piece, 0
 					, std::bind(&peer_connection::on_seed_mode_hashed, self()
 						, _1, _2, _3), this);
 				t->verifying(r.piece);
@@ -5142,9 +5125,9 @@ namespace libtorrent
 				TORRENT_ASSERT(r.piece >= piece_index_t(0));
 				TORRENT_ASSERT(r.piece < t->torrent_file().end_piece());
 
-				m_disk_thread.async_read(&t->storage(), r
+				m_disk_thread.async_read(t->storage(), r
 					, std::bind(&peer_connection::on_disk_read_complete
-					, self(), _1, _2, _3, _4, r, clock_type::now()), this);
+					, self(), _1, _2, _3, r, clock_type::now()), this);
 			}
 			m_last_sent_payload = clock_type::now();
 			m_requests.erase(m_requests.begin() + i);
@@ -5213,8 +5196,8 @@ namespace libtorrent
 		fill_send_buffer();
 	}
 
-	void peer_connection::on_disk_read_complete(aux::block_cache_reference ref
-		, char* disk_block, int const flags, storage_error const& error
+	void peer_connection::on_disk_read_complete(disk_buffer_holder buffer
+		, int const flags, storage_error const& error
 		, peer_request r, time_point issue_time)
 	{
 		TORRENT_ASSERT(is_single_thread());
@@ -5230,7 +5213,7 @@ namespace libtorrent
 			peer_log(peer_log_alert::info, "FILE_ASYNC_READ_COMPLETE"
 				, "piece: %d s: %x l: %x b: %p c: %s e: %s rtt: %d us"
 				, static_cast<int>(r.piece), r.start, r.length
-				, static_cast<void*>(disk_block)
+				, static_cast<void*>(buffer.get())
 				, (flags & disk_interface::cache_hit ? "cache hit" : "cache miss")
 				, error.ec.message().c_str(), disk_rtt);
 		}
@@ -5247,7 +5230,7 @@ namespace libtorrent
 				return;
 			}
 
-			TORRENT_ASSERT(disk_block == nullptr);
+			TORRENT_ASSERT(buffer.get() == nullptr);
 			write_dont_have(r.piece);
 			write_reject_request(r);
 			if (t->alerts().should_post<file_error_alert>())
@@ -5264,11 +5247,6 @@ namespace libtorrent
 		// if we every now and then successfully send a
 		// block, the peer is still useful
 		m_disk_read_failures = 0;
-
-		// even if we're disconnecting, we need to free this block
-		// otherwise the disk thread will hang, waiting for the network
-		// thread to be done with it
-		disk_buffer_holder buffer(m_allocator, ref, disk_block);
 
 		if (t && m_settings.get_int(settings_pack::suggest_mode)
 			== settings_pack::suggest_read_cache)
@@ -5347,14 +5325,14 @@ namespace libtorrent
 
 		if (channel == download_channel)
 		{
-			return (std::max)((std::max)(m_outstanding_bytes
+			return std::max((std::max)(m_outstanding_bytes
 				, m_recv_buffer.packet_bytes_remaining()) + 30
 				, int(std::int64_t(m_statistics.download_rate()) * 2
-					/ (1000 / tick_interval)));
+					* tick_interval / 1000));
 		}
 		else
 		{
-			return (std::max)((std::max)(m_reading_bytes
+			return std::max((std::max)(m_reading_bytes
 				, m_send_buffer.size())
 				, int((std::int64_t(m_statistics.upload_rate()) * 2
 					* tick_interval) / 1000));
@@ -5470,8 +5448,7 @@ namespace libtorrent
 				// this const_cast is a here because chained_buffer need to be
 				// fixed.
 				char* ptr = const_cast<char*>(i->data());
-				m_send_buffer.prepend_buffer(ptr
-					, size, size, &nop, nullptr);
+				m_send_buffer.prepend_buffer(aux::non_owning_handle(ptr), size, size);
 			}
 			set_send_barrier(next_barrier);
 		}
@@ -5663,24 +5640,6 @@ namespace libtorrent
 				std::bind(&peer_connection::on_receive_data, self(), _1, _2)));
 	}
 
-	void peer_connection::append_send_buffer(char* buffer, int size
-		, chained_buffer::free_buffer_fun destructor, void* userdata
-		, aux::block_cache_reference ref)
-	{
-		TORRENT_ASSERT(is_single_thread());
-		m_send_buffer.append_buffer(buffer, size, size, destructor
-			, userdata, ref);
-	}
-
-	void peer_connection::append_const_send_buffer(char const* buffer, int size
-		, chained_buffer::free_buffer_fun destructor, void* userdata
-		, aux::block_cache_reference ref)
-	{
-		TORRENT_ASSERT(is_single_thread());
-		m_send_buffer.append_buffer(const_cast<char*>(buffer), size, size, destructor
-			, userdata, ref);
-	}
-
 	piece_block_progress peer_connection::downloading_piece_progress() const
 	{
 #ifndef TORRENT_DISABLE_LOGGING
@@ -5688,14 +5647,6 @@ namespace libtorrent
 			, "downloading_piece_progress() dispatched to the base class!");
 #endif
 		return piece_block_progress();
-	}
-
-	namespace {
-		void session_free_buffer(char* buffer, void* userdata, aux::block_cache_reference)
-		{
-			aux::session_interface* ses = static_cast<aux::session_interface*>(userdata);
-			ses->free_buffer(buffer);
-		}
 	}
 
 	void peer_connection::send_buffer(char const* buf, int size, int flags)
@@ -5721,20 +5672,14 @@ namespace libtorrent
 		int i = 0;
 		while (size > 0)
 		{
-			char* chain_buf = m_ses.allocate_buffer();
-			if (chain_buf == nullptr)
-			{
-				disconnect(errors::no_memory, op_alloc_sndbuf);
-				return;
-			}
+			aux::ses_buffer_holder session_buf = m_ses.allocate_buffer();
 
-			const int alloc_buf_size = m_ses.send_buffer_size();
-			int buf_size = (std::min)(alloc_buf_size, size);
-			std::memcpy(chain_buf, buf, buf_size);
+			int const alloc_buf_size = m_ses.send_buffer_size();
+			int const buf_size = std::min(alloc_buf_size, size);
+			std::memcpy(session_buf.get(), buf, buf_size);
 			buf += buf_size;
 			size -= buf_size;
-			m_send_buffer.append_buffer(chain_buf, alloc_buf_size, buf_size
-				, &session_free_buffer, &m_ses);
+			m_send_buffer.append_buffer(std::move(session_buf), alloc_buf_size, buf_size);
 			++i;
 		}
 		setup_send();

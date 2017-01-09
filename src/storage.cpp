@@ -408,7 +408,7 @@ namespace libtorrent
 
 		// this may be called from a different
 		// thread than the disk thread
-		m_pool.release(this);
+		m_pool.release(storage_index());
 	}
 
 	void default_storage::need_partfile()
@@ -586,11 +586,7 @@ namespace libtorrent
 		}
 
 		// close files that were opened in write mode
-		m_pool.release(this);
-
-#if defined TORRENT_DEBUG_FILE_LEAKS
-		print_open_files("release files", m_files.name().c_str());
-#endif
+		m_pool.release(storage_index());
 	}
 
 	bool default_storage::has_any_file(storage_error& ec)
@@ -640,7 +636,7 @@ namespace libtorrent
 	{
 		if (index < file_index_t(0) || index >= files().end_file()) return;
 		std::string old_name = files().file_path(index, m_save_path);
-		m_pool.release(this, index);
+		m_pool.release(storage_index(), index);
 
 		// if the old file doesn't exist, just succeed and change the filename
 		// that will be created. This shortcut is important because the
@@ -651,10 +647,6 @@ namespace libtorrent
 		// valid.
 		if (exists(old_name, ec.ec))
 		{
-#if defined TORRENT_DEBUG_FILE_LEAKS
-			print_open_files("release files", m_files.name().c_str());
-#endif
-
 			std::string new_path;
 			if (is_complete(new_filename)) new_path = new_filename;
 			else new_path = combine_path(m_save_path, new_filename);
@@ -711,11 +703,7 @@ namespace libtorrent
 		}
 
 		// make sure we don't have the files open
-		m_pool.release(this);
-
-#if defined TORRENT_DEBUG_FILE_LEAKS
-		print_open_files("release files", m_files.name().c_str());
-#endif
+		m_pool.release(storage_index());
 	}
 
 	void default_storage::delete_one_file(std::string const& p, error_code& ec)
@@ -739,26 +727,19 @@ namespace libtorrent
 		// threads to hold any references to any files
 		// in this file storage. Assert that that's the
 		// case
-		if (!m_pool.assert_idle_files(this))
+		if (!m_pool.assert_idle_files(storage_index()))
 		{
-#if defined TORRENT_DEBUG_FILE_LEAKS
-			print_open_files("delete-files idle assert failed", m_files.name().c_str());
-#endif
 			TORRENT_ASSERT_FAIL();
 		}
 #endif
 
 		// make sure we don't have the files open
-		m_pool.release(this);
+		m_pool.release(storage_index());
 
 		// if there's a part file open, make sure to destruct it to have it
 		// release the underlying part file. Otherwise we may not be able to
 		// delete it
 		if (m_part_file) m_part_file.reset();
-
-#if defined TORRENT_DEBUG_FILE_LEAKS
-		print_open_files("release files", m_files.name().c_str());
-#endif
 
 		if (options == session::delete_files)
 		{
@@ -823,10 +804,6 @@ namespace libtorrent
 
 		DFLOG(stderr, "[%p] delete_files result: %s\n", static_cast<void*>(this)
 			, ec.ec.message().c_str());
-
-#if defined TORRENT_DEBUG_FILE_LEAKS
-		print_open_files("delete-files done", m_files.name().c_str());
-#endif
 	}
 
 	bool default_storage::verify_resume_data(add_torrent_params const& rd
@@ -834,8 +811,9 @@ namespace libtorrent
 		, storage_error& ec)
 	{
 		file_storage const& fs = files();
-
-#ifndef TORRENT_DISABLE_MUTABLE_TORRENTS
+#ifdef TORRENT_DISABLE_MUTABLE_TORRENTS
+		TORRENT_UNUSED(links);
+#else
 		if (!links.empty())
 		{
 			TORRENT_ASSERT(int(links.size()) == fs.num_files());
@@ -991,11 +969,11 @@ namespace libtorrent
 			}
 		}
 
-		m_pool.release(this);
+		m_pool.release(storage_index());
 
-#if defined TORRENT_DEBUG_FILE_LEAKS
-		print_open_files("release files", m_files.name().c_str());
-#endif
+		// indices of all files we ended up copying. These need to be deleted
+		// later
+		aux::vector<bool, file_index_t> copied_files(f.num_files(), false);
 
 		file_index_t i;
 		error_code e;
@@ -1017,10 +995,22 @@ namespace libtorrent
 			// volumes, the source should not be deleted until they've all been
 			// copied. That would let us rollback with higher confidence.
 			move_file(old_path, new_path, e);
+
 			// if the source file doesn't exist. That's not a problem
 			// we just ignore that file
 			if (e == boost::system::errc::no_such_file_or_directory)
 				e.clear();
+			else if (e
+				&& e != boost::system::errc::invalid_argument
+				&& e != boost::system::errc::permission_denied)
+			{
+				// moving the file failed
+				// on OSX, the error when trying to rename a file across different
+				// volumes is EXDEV, which will make it fall back to copying.
+				e.clear();
+				copy_file(old_path, new_path, e);
+				if (!e) copied_files[i] = true;
+			}
 
 			if (e)
 			{
@@ -1050,15 +1040,16 @@ namespace libtorrent
 				// files moved out to absolute paths are not moved
 				if (f.file_absolute_path(i)) continue;
 
+				// if we ended up copying the file, don't do anything during
+				// roll-back
+				if (copied_files[i]) continue;
+
 				std::string const old_path = combine_path(m_save_path, f.file_path(i));
 				std::string const new_path = combine_path(save_path, f.file_path(i));
 
-				if (!exists(old_path))
-				{
-					// ignore errors when rolling back
-					error_code ignore;
-					move_file(new_path, old_path, ignore);
-				}
+				// ignore errors when rolling back
+				error_code ignore;
+				move_file(new_path, old_path, ignore);
 			}
 
 			return status_t::fatal_disk_error;
@@ -1075,6 +1066,10 @@ namespace libtorrent
 
 			if (has_parent_path(f.file_path(i)))
 				subdirs.insert(parent_path(f.file_path(i)));
+
+			// if we ended up renaming the file instead of moving it, there's no
+			// need to delete the source.
+			if (copied_files[i] == false) continue;
 
 			std::string const old_path = combine_path(old_save_path, f.file_path(i));
 
@@ -1133,7 +1128,6 @@ namespace libtorrent
 
 		const int size = bufs_size(bufs);
 		TORRENT_ASSERT(size > 0);
-		TORRENT_ASSERT(files.is_loaded());
 
 		// find the file iterator and file offset
 		std::int64_t const torrent_offset = static_cast<int>(piece) * std::int64_t(files.piece_length()) + offset;
@@ -1298,8 +1292,8 @@ namespace libtorrent
 			mode |= file::no_cache;
 		}
 
-		file_handle ret = m_pool.open_file(const_cast<default_storage*>(this)
-			, m_save_path, file, files(), mode, ec);
+		file_handle ret = m_pool.open_file(storage_index(), m_save_path, file
+			, files(), mode, ec);
 		if (ec && (mode & file::lock_file))
 		{
 			// we failed to open the file and we're trying to lock it. It's
@@ -1307,8 +1301,8 @@ namespace libtorrent
 			// file in use (but waiting to be closed). Just retry to open it
 			// without locking.
 			mode &= ~file::lock_file;
-			ret = m_pool.open_file(const_cast<default_storage*>(this)
-				, m_save_path, file, files(), mode, ec);
+			ret = m_pool.open_file(storage_index(), m_save_path, file, files()
+				, mode, ec);
 		}
 		return ret;
 	}
@@ -1477,10 +1471,7 @@ namespace libtorrent
 
 	// ====== disk_job_fence implementation ========
 
-	disk_job_fence::disk_job_fence()
-		: m_has_fence(0)
-		, m_outstanding_jobs(0)
-	{}
+	disk_job_fence::disk_job_fence() {}
 
 	int disk_job_fence::job_complete(disk_io_job* j, tailqueue<disk_io_job>& jobs)
 	{

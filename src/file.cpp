@@ -73,11 +73,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "libtorrent/aux_/max_path.hpp" // for TORRENT_MAX_PATH
 #include <cstring>
 
-#ifdef TORRENT_DEBUG_FILE_LEAKS
-#include <set>
-#include <cstdio>
-#endif
-
 // for convert_to_wstring and convert_to_native
 #include "libtorrent/aux_/escape_string.hpp"
 #include "libtorrent/assert.hpp"
@@ -99,6 +94,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #include "libtorrent/utf8.hpp"
+#include "libtorrent/aux_/win_util.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -697,30 +693,9 @@ namespace libtorrent
 		}
 
 		rename(inf, newf, ec);
-
-		// on OSX, the error when trying to rename a file across different
-		// volumes is EXDEV, which will make it fall back to copying.
-
-		if (ec)
-		{
-			if (ec != boost::system::errc::no_such_file_or_directory
-				&& ec != boost::system::errc::invalid_argument
-				&& ec != boost::system::errc::permission_denied)
-			{
-				ec.clear();
-				copy_file(inf, newf, ec);
-
-				if (!ec)
-				{
-					// ignore errors when removing
-					error_code ignore;
-					remove(inf, ignore);
-				}
-			}
-		}
 	}
 
-	std::string split_path(std::string const& f)
+	std::string split_path(std::string const& f, bool only_first_part)
 	{
 		if (f.empty()) return f;
 
@@ -738,11 +713,13 @@ namespace libtorrent
 			if (p - start > 0)
 			{
 				ret.append(start, p - start);
+				if (only_first_part) return ret;
 				ret.append(1, '\0');
 			}
 			if (*p != 0) ++p;
 			start = p;
 		}
+		if (only_first_part) return ret;
 		ret.append(1, '\0');
 		return ret;
 	}
@@ -1379,10 +1356,6 @@ namespace libtorrent
 	{
 		close();
 
-#ifdef TORRENT_DEBUG_FILE_LEAKS
-		m_file_path = path;
-#endif
-
 #ifdef TORRENT_DISK_STATS
 		m_file_id = silly_hash(path);
 #endif
@@ -1560,14 +1533,6 @@ namespace libtorrent
 		TORRENT_ASSERT(is_open());
 		return true;
 	}
-
-#ifdef TORRENT_DEBUG_FILE_LEAKS
-	void file::print_info(FILE* out) const
-	{
-		if (!is_open()) return;
-		std::fprintf(out, "\n===> FILE: %s\n", m_file_path.c_str());
-	}
-#endif
 
 	bool file::is_open() const
 	{
@@ -1974,38 +1939,23 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 			PTOKEN_PRIVILEGES PreviousState,
 			PDWORD ReturnLength);
 
-		static OpenProcessToken_t pOpenProcessToken = nullptr;
-		static LookupPrivilegeValue_t pLookupPrivilegeValue = nullptr;
-		static AdjustTokenPrivileges_t pAdjustTokenPrivileges = nullptr;
-		static bool failed_advapi = false;
+		auto OpenProcessToken =
+			aux::get_library_procedure<aux::advapi32, OpenProcessToken_t>("OpenProcessToken");
+		auto LookupPrivilegeValue =
+			aux::get_library_procedure<aux::advapi32, LookupPrivilegeValue_t>("LookupPrivilegeValueA");
+		auto AdjustTokenPrivileges =
+			aux::get_library_procedure<aux::advapi32, AdjustTokenPrivileges_t>("AdjustTokenPrivileges");
 
-		if (pOpenProcessToken == nullptr && !failed_advapi)
-		{
-			HMODULE advapi = LoadLibraryA("advapi32");
-			if (advapi == nullptr)
-			{
-				failed_advapi = true;
-				return false;
-			}
-			pOpenProcessToken = (OpenProcessToken_t)GetProcAddress(advapi, "OpenProcessToken");
-			pLookupPrivilegeValue = (LookupPrivilegeValue_t)GetProcAddress(advapi, "LookupPrivilegeValueA");
-			pAdjustTokenPrivileges = (AdjustTokenPrivileges_t)GetProcAddress(advapi, "AdjustTokenPrivileges");
-			if (pOpenProcessToken == nullptr
-				|| pLookupPrivilegeValue == nullptr
-				|| pAdjustTokenPrivileges == nullptr)
-			{
-				failed_advapi = true;
-				return false;
-			}
-		}
+		if (OpenProcessToken == nullptr || LookupPrivilegeValue == nullptr || AdjustTokenPrivileges == nullptr) return false;
+
 
 		HANDLE token;
-		if (!pOpenProcessToken(GetCurrentProcess()
+		if (!OpenProcessToken(GetCurrentProcess()
 			, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token))
 			return false;
 
 		TOKEN_PRIVILEGES privs;
-		if (!pLookupPrivilegeValue(nullptr, "SeManageVolumePrivilege"
+		if (!LookupPrivilegeValue(nullptr, "SeManageVolumePrivilege"
 			, &privs.Privileges[0].Luid))
 		{
 			CloseHandle(token);
@@ -2015,7 +1965,7 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 		privs.PrivilegeCount = 1;
 		privs.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
-		bool ret = pAdjustTokenPrivileges(token, FALSE, &privs, 0, nullptr, nullptr)
+		bool ret = AdjustTokenPrivileges(token, FALSE, &privs, 0, nullptr, nullptr)
 			&& GetLastError() == ERROR_SUCCESS;
 
 		CloseHandle(token);
@@ -2026,30 +1976,14 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 	void set_file_valid_data(HANDLE f, std::int64_t size)
 	{
 		typedef BOOL (WINAPI *SetFileValidData_t)(HANDLE, LONGLONG);
-		static SetFileValidData_t pSetFileValidData = nullptr;
-		static bool failed_kernel32 = false;
+		auto SetFileValidData =
+			aux::get_library_procedure<aux::kernel32, SetFileValidData_t>("SetFileValidData");
 
-		if (pSetFileValidData == nullptr && !failed_kernel32)
-		{
-			HMODULE k32 = LoadLibraryA("kernel32");
-			if (k32 == nullptr)
-			{
-				failed_kernel32 = true;
-				return;
-			}
-			pSetFileValidData = (SetFileValidData_t)GetProcAddress(k32, "SetFileValidData");
-			if (pSetFileValidData == nullptr)
-			{
-				failed_kernel32 = true;
-				return;
-			}
-		}
-
-		TORRENT_ASSERT(pSetFileValidData);
+		if (SetFileValidData == nullptr) return;
 
 		// we don't necessarily expect to have enough
 		// privilege to do this, so ignore errors.
-		pSetFileValidData(f, size);
+		SetFileValidData(f, size);
 	}
 #endif
 
@@ -2093,30 +2027,16 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 				, LPVOID lpFileInformation
 				, DWORD dwBufferSize);
 
-			static GetFileInformationByHandleEx_t GetFileInformationByHandleEx_ = nullptr;
-
-			static bool failed_kernel32 = false;
-
-			if ((GetFileInformationByHandleEx_ == nullptr) && !failed_kernel32)
-			{
-				HMODULE kernel32 = LoadLibraryA("kernel32.dll");
-				if (kernel32)
-				{
-					GetFileInformationByHandleEx_ = (GetFileInformationByHandleEx_t)GetProcAddress(kernel32, "GetFileInformationByHandleEx");
-				}
-				else
-				{
-					failed_kernel32 = true;
-				}
-			}
+			auto GetFileInformationByHandleEx =
+				aux::get_library_procedure<aux::kernel32, GetFileInformationByHandleEx_t>("GetFileInformationByHandleEx");
 
 			offs.QuadPart = 0;
-			if (GetFileInformationByHandleEx_)
+			if (GetFileInformationByHandleEx != nullptr)
 			{
 				// only allocate the space if the file
 				// is not fully allocated
 				FILE_STANDARD_INFO inf;
-				if (GetFileInformationByHandleEx_(native_handle()
+				if (GetFileInformationByHandleEx(native_handle()
 					, FileStandardInfo, &inf, sizeof(inf)) == FALSE)
 				{
 					ec.assign(GetLastError(), system_category());
@@ -2284,73 +2204,4 @@ typedef struct _FILE_ALLOCATED_RANGE_BUFFER {
 		return start;
 #endif
 	}
-
-#ifdef TORRENT_DEBUG_FILE_LEAKS
-	std::set<file_handle*> global_file_handles;
-	std::mutex file_handle_mutex;
-
-	file_handle::file_handle()
-	{
-		std::lock_guard<std::mutex> l(file_handle_mutex);
-		global_file_handles.insert(this);
-		stack[0] = 0;
-	}
-	file_handle::file_handle(file* f): m_file(f)
-	{
-		std::lock_guard<std::mutex> l(file_handle_mutex);
-		global_file_handles.insert(this);
-		if (f) print_backtrace(stack, sizeof(stack), 10);
-		else stack[0] = 0;
-	}
-	file_handle::file_handle(file_handle const& fh)
-	{
-		std::lock_guard<std::mutex> l(file_handle_mutex);
-		global_file_handles.insert(this);
-		m_file = fh.m_file;
-		if (m_file) print_backtrace(stack, sizeof(stack), 10);
-		else stack[0] = 0;
-	}
-	file_handle::~file_handle()
-	{
-		std::lock_guard<std::mutex> l(file_handle_mutex);
-		global_file_handles.erase(this);
-		stack[0] = 0;
-	}
-	file* file_handle::operator->() { return m_file.get(); }
-	file const* file_handle::operator->() const { return m_file.get(); }
-	file& file_handle::operator*() { return *m_file.get(); }
-	file const& file_handle::operator*() const { return *m_file.get(); }
-	file* file_handle::get() { return m_file.get(); }
-	file const* file_handle::get() const { return m_file.get(); }
-	file_handle::operator bool() const { return m_file.get(); }
-	file_handle& file_handle::reset(file* f)
-	{
-		std::lock_guard<std::mutex> l(file_handle_mutex);
-		if (f) print_backtrace(stack, sizeof(stack), 10);
-		else stack[0] = 0;
-		l.unlock();
-		m_file.reset(f);
-		return *this;
-	}
-
-	void print_open_files(char const* event, char const* name)
-	{
-		FILE* out = std::fopen("open_files.log", "a+");
-		std::lock_guard<std::mutex> l(file_handle_mutex);
-		std::fprintf(out, "\n\nEVENT: %s TORRENT: %s\n\n", event, name);
-		for (std::set<file_handle*>::iterator i = global_file_handles.begin()
-			, end(global_file_handles.end()); i != end; ++i)
-		{
-			TORRENT_ASSERT(*i != nullptr);
-			if (!*i) continue;
-			file_handle const& h = **i;
-			if (!h) continue;
-
-			if (!h->is_open()) continue;
-			h->print_info(out);
-			std::fprintf(out, "\n%s\n\n", h.stack);
-		}
-		std::fclose(out);
-	}
-#endif
 }

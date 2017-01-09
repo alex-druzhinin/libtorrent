@@ -40,6 +40,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "libtorrent/extensions/ut_pex.hpp"
 #include "libtorrent/ip_filter.hpp"
 #include "libtorrent/torrent_status.hpp"
+#include "libtorrent/file.hpp"
 #include <tuple>
 
 #include "setup_transfer.hpp"
@@ -138,7 +139,7 @@ void test_pex()
 
 	TEST_CHECK(st1.num_peers == 2 && st2.num_peers == 2 && st3.num_peers == 2)
 
-	if (!tor2.status().is_seeding && tor3.status().is_seeding) std::cerr << "done\n";
+	if (!tor2.status().is_seeding && tor3.status().is_seeding) std::cout << "done\n";
 
 	// this allows shutting down the sessions in parallel
 	p1 = ses1.abort();

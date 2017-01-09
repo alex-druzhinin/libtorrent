@@ -38,8 +38,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "libtorrent/aux_/disable_warnings_push.hpp"
 
 #if TORRENT_USE_CRYPTOAPI
-#include <windows.h>
-#include <wincrypt.h>
+#include "libtorrent/aux_/win_crypto_provider.hpp"
 
 #elif defined TORRENT_USE_LIBCRYPTO
 extern "C" {
@@ -70,30 +69,8 @@ namespace libtorrent
 		void random_bytes(span<char> buffer)
 		{
 #if TORRENT_USE_CRYPTOAPI
-			HCRYPTPROV prov;
+			aux::crypt_gen_random(buffer);
 
-			if (!CryptAcquireContext(&prov, NULL, NULL
-				, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT))
-			{
-#ifndef BOOST_NO_EXCEPTIONS
-				throw system_error(error_code(GetLastError(), system_category()));
-#else
-				std::terminate();
-#endif
-			}
-
-			if (!CryptGenRandom(prov, int(buffer.size())
-				, reinterpret_cast<BYTE*>(buffer.data())))
-			{
-				CryptReleaseContext(prov, 0);
-#ifndef BOOST_NO_EXCEPTIONS
-				throw system_error(error_code(GetLastError(), system_category()));
-#else
-				std::terminate();
-#endif
-			}
-
-			CryptReleaseContext(prov, 0);
 #elif defined TORRENT_USE_LIBCRYPTO
 #ifdef TORRENT_MACOS_DEPRECATED_LIBCRYPTO
 #pragma clang diagnostic push
