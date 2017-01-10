@@ -1953,8 +1953,10 @@ namespace aux {
 		// initiate accepting on the listen sockets
 		for (auto& s : m_listen_sockets)
 		{
-			if (s.sock) async_accept(s.sock, s.ssl);
-			remap_ports(remap_natpmp_and_upnp, s);
+			if (s.sock) {
+			    async_accept(s.sock, s.ssl);
+			    remap_ports(remap_natpmp_and_upnp, s);
+			}
 		}
 
 		open_new_incoming_socks_connection();
