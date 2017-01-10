@@ -5982,6 +5982,7 @@ namespace aux {
 		for (auto const& l : m_listen_sockets)
 		{
 			error_code ec;
+			if (l.sock) {
 			set_tos(*l.sock, tos, ec);
 
 #ifndef TORRENT_DISABLE_LOGGING
@@ -5992,7 +5993,11 @@ namespace aux {
 					, l.sock->local_endpoint().port(), tos, ec.message().c_str());
 			}
 #endif
+			}
+			
 			ec.clear();
+			
+			if (l.udp_sock) {
 			set_tos(*l.udp_sock, tos, ec);
 
 #ifndef TORRENT_DISABLE_LOGGING
@@ -6004,6 +6009,7 @@ namespace aux {
 					, tos, ec.message().c_str());
 			}
 #endif
+			}
 		}
 	}
 
