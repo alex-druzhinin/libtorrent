@@ -1903,6 +1903,7 @@ namespace aux {
 			return;
 		}
 
+		session_log("send alerts");
 		// now, send out listen_succeeded_alert for the listen sockets we are
 		// listening on
 		// TODO only post alerts for new sockets?
@@ -1943,6 +1944,7 @@ namespace aux {
 			}
 		}
 
+		session_log("update_peer_tos");
 		if (m_settings.get_int(settings_pack::peer_tos) != 0)
 		{
 			update_peer_tos();
@@ -1950,6 +1952,7 @@ namespace aux {
 
 		ec.clear();
 
+		session_log("initiate accept");
 		// initiate accepting on the listen sockets
 		for (auto& s : m_listen_sockets)
 		{
@@ -1959,10 +1962,12 @@ namespace aux {
 			}
 		}
 
+		session_log("open_new_incoming_socks_connection");
 		open_new_incoming_socks_connection();
 #if TORRENT_USE_I2P
 		open_new_incoming_i2p_connection();
 #endif
+		session_log("method end");
 	}
 
 	namespace {
